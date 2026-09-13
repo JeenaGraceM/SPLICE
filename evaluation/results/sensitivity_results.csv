@@ -1,0 +1,7 @@
+scenario,strategy,trials,true_positive,false_positive,false_negative,true_negative,precision,recall
+no_skew,adaptive_median_mad,20,0,0,0,400,,
+no_skew,fixed_3x_median,20,0,0,0,400,,
+one_extreme_hot_partition,adaptive_median_mad,20,20,1,0,379,0.952,1.0
+one_extreme_hot_partition,fixed_3x_median,20,20,0,0,380,1.0,1.0
+several_moderately_hot_partitions,adaptive_median_mad,20,80,0,0,320,1.0,1.0
+several_moderately_hot_partitions,fixed_3x_median,20,0,0,80,320,,0.0
