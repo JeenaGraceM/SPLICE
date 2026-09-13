@@ -36,3 +36,26 @@ class AdaptiveThreshold:
         threshold = med + self.z * 1.4826 * mad
 
         return threshold
+
+
+class FixedThreshold:
+    """
+    A simple, fixed-ratio threshold: flags anything larger than
+    skew_factor * median. Exists purely so its detection behaviour
+    can be compared head-to-head against AdaptiveThreshold on the
+    same data -- this is the baseline the paper says a workload-
+    adaptive scheme should be shown to improve on (Phase 3 /
+    "ablate multiple thresholding strategies").
+
+    Implements the same .calculate(sizes) -> threshold interface
+    as AdaptiveThreshold, so either can be passed into SkewDetector
+    interchangeably.
+    """
+
+    def __init__(self, skew_factor=3.0):
+        self.skew_factor = skew_factor
+
+    def calculate(self, partition_sizes):
+        if not partition_sizes:
+            return 0
+        return self.skew_factor * median(partition_sizes)

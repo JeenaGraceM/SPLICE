@@ -21,8 +21,14 @@ class SkewDetector:
        key(s) responsible for most of a flagged partition's size.
     """
 
-    def __init__(self, z=3.5, hot_key_share=0.5):
-        self.threshold_calculator = AdaptiveThreshold(z=z)
+    def __init__(self, z=3.5, hot_key_share=0.5, threshold_strategy=None):
+        """
+        threshold_strategy: an object with a .calculate(sizes) method,
+        e.g. AdaptiveThreshold() (default) or FixedThreshold(). Lets
+        the same detector be run with different thresholding schemes
+        for direct comparison (see detection/sensitivity.py).
+        """
+        self.threshold_calculator = threshold_strategy or AdaptiveThreshold(z=z)
         # A key counts as "hot" if it accounts for at least this
         # fraction of its partition's total size.
         self.hot_key_share = hot_key_share
@@ -140,6 +146,71 @@ class SkewDetector:
             partition_keys.setdefault(pid, {})[key] = cnt
 
         return self.detect(stage_id=stage_id, partition_keys=partition_keys)
+
+    def detect_from_rdd(self, stage_id, rdd, key_fn=None, num_partitions=None):
+        """
+        RDD-level counterpart to detect_from_dataframe(). Covers jobs
+        expressed directly against the RDD API (reduceByKey/groupByKey)
+        which bypass Catalyst entirely and therefore can't be reached
+        via a DataFrame-only detection path -- this is the gap the
+        paper calls out explicitly (RDD pipelines fall outside AQE's
+        coverage for the same reason).
+
+        Parameters:
+            stage_id (int): label for this detection run.
+            rdd: either an RDD of (key, value) pairs already, or a
+                plain RDD of arbitrary records plus a key_fn to
+                extract the key from each record.
+            key_fn (callable, optional): record -> key. Required if
+                rdd is not already a pair RDD.
+            num_partitions (int, optional): number of post-shuffle
+                partitions to simulate. Defaults to rdd's current
+                partition count.
+
+        Returns:
+            dict: same shape as detect().
+        """
+        paired = rdd.map(lambda record: (key_fn(record), record)) if key_fn else rdd
+
+        n = num_partitions or paired.getNumPartitions()
+        # partitionBy hash-partitions by key -- the same shuffle
+        # reduceByKey/groupByKey would trigger -- so we're measuring
+        # real post-shuffle partition sizes, not the RDD's original
+        # (pre-shuffle) layout.
+        shuffled = paired.partitionBy(n)
+
+        def count_per_partition(index, iterator):
+            counts = {}
+            for key, _ in iterator:
+                counts[key] = counts.get(key, 0) + 1
+            if counts:
+                yield (index, counts)
+
+        collected = shuffled.mapPartitionsWithIndex(count_per_partition).collect()
+        partition_keys = dict(collected)
+
+        return self.detect(stage_id=stage_id, partition_keys=partition_keys)
+
+    def detect_from_listener(self, stage_id, listener):
+        """
+        Uses REAL shuffle-write metrics captured by a live
+        ShuffleWriteListener (see live_monitor.py) instead of
+        simulating a shuffle. This is the direct implementation of
+        the paper's C1 (taps per-task shuffle-write metrics as map
+        tasks complete).
+
+        Parameters:
+            stage_id (int): the Spark stage to inspect.
+            listener (ShuffleWriteListener): an already-attached
+                listener that has observed the stage's tasks complete.
+
+        Returns:
+            dict: same shape as detect(). hot_keys will be None,
+            since real shuffle-write metrics report bytes per
+            partition, not key contents.
+        """
+        partition_sizes = listener.get_partition_sizes(stage_id)
+        return self.detect(stage_id=stage_id, partition_sizes=partition_sizes)
 
     @staticmethod
     def skewed_only(result):
