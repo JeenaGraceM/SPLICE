@@ -1,4 +1,13 @@
-# placeholder detector, shaped like Person 1's real JSON output
+# LEGACY / UNUSED: placeholder detector, shaped like Person 1's real
+# JSON output. This was scaffolding used before detection/detector.py
+# (Person 1's real SkewDetector) existed, so the rest of the pipeline
+# could be built and tested against a fake-but-plausible shape.
+#
+# main.py imports the real detector via skew_detector.py, which
+# re-exports detection.detector.SkewDetector -- this stub is NOT part
+# of that import chain and does not run in any current pipeline.
+# Kept here for reference / as an offline mock if Spark isn't available.
+# Safe to delete once confirmed nothing depends on it.
 
 from pyspark.sql import functions as F
 
